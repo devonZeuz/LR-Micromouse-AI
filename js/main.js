@@ -1,0 +1,401 @@
+import { Maze } from './maze.js';
+import { Mouse } from './mouse.js';
+import { QLearningAgent } from './ai.js';
+
+const canvas = document.getElementById('mazeCanvas');
+const ctx = canvas.getContext('2d');
+const startBtn = document.getElementById('startBtn');
+const resetBtn = document.getElementById('resetBtn');
+const newMazeBtn = document.getElementById('newMazeBtn');
+const playModeBtn = document.getElementById('playModeBtn');
+const generationSpan = document.getElementById('generation');
+const bestTimeSpan = document.getElementById('bestTime');
+const currentTimeSpan = document.getElementById('currentTime');
+const scoreboardList = document.getElementById('scoreboardList');
+const successfulRunsSpan = document.getElementById('successfulRuns');
+const totalStepsSpan = document.getElementById('totalSteps');
+const averageStepsSpan = document.getElementById('averageSteps');
+const modeIndicator = document.getElementById('modeIndicator');
+const currentModeSpan = document.getElementById('currentMode');
+
+const MAZE_SIZE = 31;
+const CELL_SIZE = 20;
+const ANIMATION_SPEED = 50;
+const LEARNING_STEPS_PER_FRAME = 10;
+const SUCCESS_PAUSE_DURATION = 1500;
+const MAX_SCOREBOARD_ENTRIES = 10;
+const PARTICLE_COUNT = 100;
+
+let maze;
+let mouse;
+let ai;
+let generation = 0;
+let successfulRuns = 0;
+let totalSteps = 0;
+let bestTime = Infinity;
+let animationInterval;
+let isPaused = false;
+let successfulRunsData = [];
+let mouseName = 'Learner';
+let mouseLogo;
+let particles = [];
+let isPlayMode = false;
+
+// Simplified mouse name system
+const mouseNames = ["Baus", "Rekkles", "Nemesis", "Velja", "Crownie"];
+
+const getMouseName = (gen) => {
+    return `${mouseNames[gen % mouseNames.length]} v${Math.floor(gen / mouseNames.length) + 1}`;
+};
+
+// Preload mouse logo image
+const preloadAssets = () => {
+    mouseLogo = new Image();
+    mouseLogo.src = 'icons/los-ratones-logo.png';
+    mouseLogo.onload = () => generateNewMaze();
+    mouseLogo.onerror = () => generateNewMaze();
+};
+
+// Generate a new maze and reset game state
+const generateNewMaze = () => {
+    stopAnimation();
+    isPlayMode = false;
+    updateModeIndicator();
+
+    const mazeWidth = MAZE_SIZE % 2 === 0 ? MAZE_SIZE + 1 : MAZE_SIZE;
+    const mazeHeight = MAZE_SIZE % 2 === 0 ? MAZE_SIZE + 1 : MAZE_SIZE;
+
+    canvas.width = mazeWidth * CELL_SIZE;
+    canvas.height = mazeHeight * CELL_SIZE;
+
+    maze = new Maze(mazeWidth, mazeHeight, CELL_SIZE);
+    maze.generate();
+    
+    ai = new QLearningAgent(0.2, 0.95, 1.0, 0.995, 0.01);
+    mouse = new Mouse(maze, maze.start.x, maze.start.y, mouseLogo);
+
+    generation = 0;
+    successfulRuns = 0;
+    totalSteps = 0;
+    bestTime = Infinity;
+    successfulRunsData = [];
+    updateScoreboard();
+    updateMetrics();
+    updateStats();
+    draw();
+};
+
+// Reset mouse position and optionally load best AI state
+const resetMouseAndAI = (loadBestAI = true) => {
+    stopAnimation();
+    isPlayMode = false;
+    updateModeIndicator();
+
+    if (ai && loadBestAI && successfulRunsData.length > 0) {
+        // Load the Q-table from the best successful run
+        const bestRun = successfulRunsData[0];
+        if (!ai) {
+             ai = new QLearningAgent(0.2, 0.95, 1.0, 0.995, 0.1);
+        }
+        ai.loadQTable(bestRun.qTable);
+        mouseName = getMouseName(bestRun.generation);
+    } else {
+         // Initialize new AI or use current AI
+         if (!ai) {
+             ai = new QLearningAgent(0.2, 0.95, 1.0, 0.995, 0.1);
+         }
+         mouseName = 'Learner';
+    }
+    
+    mouse.reset(maze.start.x, maze.start.y);
+    updateStats();
+    draw();
+};
+
+// Start the learning process
+const startLearning = () => {
+    if (isPaused) return;
+    stopAnimation();
+    isPlayMode = false;
+    updateModeIndicator();
+    animationInterval = requestAnimationFrame(gameLoop);
+};
+
+// Main game loop for learning mode
+const gameLoop = (timestamp) => {
+    if (isPaused || isPlayMode) return;
+
+    // Execute multiple AI steps per frame for faster learning
+    for (let i = 0; i < LEARNING_STEPS_PER_FRAME; i++) {
+        const currentState = mouse.y * maze.width + mouse.x;
+        const action = ai.getAction(currentState);
+        const nextPosition = mouse.getNextPosition(action);
+        const nextState = nextPosition.y * maze.width + nextPosition.x;
+
+        if (maze.isValidPosition(nextPosition.x, nextPosition.y)) { // Check validity of the *next* position
+             mouse.move(action);
+             // Calculate reward based on the outcome of the move
+             const reward = ai.getReward(mouse, action);
+            
+             ai.learn(currentState, action, reward, nextState);
+
+            // Update current steps display after each individual step
+            updateStats();
+
+        } else {
+            // Penalize hitting a wall
+            ai.learn(currentState, action, -10, currentState); // Large penalty for invalid moves
+        }
+
+        // Update current steps display immediately after a step (valid or invalid)
+        currentTimeSpan.textContent = mouse.steps;
+
+        // Check for successful run after each step within the frame
+        if (mouse.isAtEnd()) {
+            handleSuccessfulRun();
+            return; // Stop this game loop iteration and wait for timeout
+        }
+    }
+
+    // Redraw the canvas after executing steps for this frame
+    draw();
+
+    // Request the next frame for animation
+    animationInterval = requestAnimationFrame(gameLoop);
+};
+
+// Handle a successful run to the end of the maze
+const handleSuccessfulRun = () => {
+    successfulRuns++;
+    const currentRunSteps = mouse.steps;
+    const currentRunName = mouseName;
+
+    totalSteps += currentRunSteps;
+    bestTime = Math.min(bestTime, currentRunSteps);
+
+    // Add to scoreboard if in Learning Mode
+    if (!isPlayMode) {
+         successfulRunsData.push({
+            generation: generation,
+            name: currentRunName,
+            steps: currentRunSteps,
+            qTable: ai.getQTableCopy() // Store a copy of the Q-table for potential loading
+        });
+        // Sort scoreboard by steps (ascending)
+        successfulRunsData.sort((a, b) => a.steps - b.steps);
+        // Keep only the top N entries
+        successfulRunsData = successfulRunsData.slice(0, MAX_SCOREBOARD_ENTRIES);
+    }
+
+    updateMetrics();
+    updateStats();
+    updateScoreboard();
+    
+    drawMouseAfterSuccess(); // Ensure the final mouse position is drawn
+    startParticleAnimation(mouse.x, mouse.y); // Start particles at the end position
+    isPaused = true;
+    stopAnimation();
+    
+    // Pause before starting the next generation
+    setTimeout(() => {
+        isPaused = false;
+        generation++;
+        // Decay exploration rate for the next generation
+        ai.decayExploration();
+
+        // Update the mouseName for the next generation
+        mouseName = getMouseName(generation);
+
+        // Reset mouse and start learning for the next generation
+        mouse.reset(maze.start.x, maze.start.y);
+        startLearning();
+    }, SUCCESS_PAUSE_DURATION);
+};
+
+// Start particle animation at a given position
+const startParticleAnimation = (x, y) => {
+    particles = [];
+    // Calculate canvas coordinates from maze grid coordinates
+    const startX = x * CELL_SIZE + CELL_SIZE / 2;
+    const startY = y * CELL_SIZE + CELL_SIZE / 2;
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+        particles.push(new Particle(startX, startY));
+    }
+    // Ensure draw loop is running to animate particles
+     if (!animationInterval) {
+         requestAnimationFrame(draw);
+     }
+};
+
+// Simple Particle class for animation effects
+class Particle {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.size = Math.random() * 10 + 5;
+        this.color = Math.random() < 0.5 ? '#ffffff' : '#000000';
+        this.velocity = {
+            x: (Math.random() - 0.5) * 1,
+            y: (Math.random() - 0.5) * 1
+        };
+        this.alpha = 1;
+        this.decay = Math.random() * 0.01 + 0.005;
+    }
+
+    update() {
+        this.x += this.velocity.x;
+        this.y += this.velocity.y;
+        this.alpha -= this.decay;
+        this.velocity.x *= 0.98;
+        this.velocity.y *= 0.98;
+    }
+
+    draw(ctx) {
+        if (this.alpha > 0) {
+            ctx.save();
+            ctx.globalAlpha = this.alpha;
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size / 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+    }
+}
+
+// Stop the animation frame loop
+const stopAnimation = () => {
+    if (animationInterval) {
+        cancelAnimationFrame(animationInterval);
+        animationInterval = null;
+    }
+};
+
+// Ensure mouse final position is drawn after success
+const drawMouseAfterSuccess = () => {
+    draw();
+};
+
+// Main drawing function
+const draw = () => {
+    // Only clear and redraw if not paused (particles still animate when paused)
+    if (!isPaused) {
+        ctx.fillStyle = '#000000'; // Black background for canvas
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        maze.draw(ctx);
+        mouse.draw(ctx, mouseLogo);
+    }
+
+    // Draw particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+        particles[i].update();
+        particles[i].draw(ctx);
+        if (particles[i].alpha <= 0) {
+            particles.splice(i, 1);
+        }
+    }
+
+    // Continue animation if there are particles or if not paused and in gameLoop
+    if (particles.length > 0 || isPaused || (!animationInterval && !isPlayMode)) {
+         requestAnimationFrame(draw);
+    }
+};
+
+// Update statistics displayed on the page
+const updateStats = () => {
+    generationSpan.textContent = generation;
+    bestTimeSpan.textContent = bestTime === Infinity ? '-' : bestTime;
+    currentTimeSpan.textContent = mouse.steps;
+};
+
+// Update metrics displayed on the page
+const updateMetrics = () => {
+    successfulRunsSpan.textContent = successfulRuns;
+    totalStepsSpan.textContent = totalSteps;
+    averageStepsSpan.textContent = successfulRuns === 0 ? '-' : (totalSteps / successfulRuns).toFixed(2);
+};
+
+// Update the scoreboard list
+const updateScoreboard = () => {
+    scoreboardList.innerHTML = ''; // Clear current list
+    // Add each successful run to the list
+    successfulRunsData.forEach(run => {
+        const li = document.createElement('li');
+        li.innerHTML = `Gen ${run.generation}: ${run.name} - ${run.steps} steps`;
+        scoreboardList.appendChild(li);
+    });
+};
+
+// Update the mode indicator (Learning/Play)
+const updateModeIndicator = () => {
+    modeIndicator.textContent = `Mode: ${isPlayMode ? 'Play' : 'Learning'}`;
+};
+
+// Event Listeners for buttons
+startBtn.addEventListener('click', startLearning);
+
+resetBtn.addEventListener('click', () => {
+    // Reset mouse and load best AI on reset
+    resetMouseAndAI(true);
+});
+
+newMazeBtn.addEventListener('click', () => {
+    // Generate a completely new maze and reset everything
+    generateNewMaze();
+});
+
+playModeBtn.addEventListener('click', () => {
+    stopAnimation(); // Stop learning animation
+    isPlayMode = true;
+    mouse.reset(maze.start.x, maze.start.y); // Reset mouse for play mode
+    updateModeIndicator();
+    updateStats();
+    draw();
+});
+
+// Keyboard controls for Play Mode
+document.addEventListener('keydown', (event) => {
+    // Only respond in play mode and when not paused
+    if (!isPlayMode || isPaused) return;
+
+    // Prevent default scrolling for arrow keys
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+        event.preventDefault();
+    }
+
+    let action = -1;
+
+    switch (event.key) {
+        case 'ArrowUp':
+            action = 3; // Up
+            break;
+        case 'ArrowRight':
+            action = 0; // Right
+            break;
+        case 'ArrowDown':
+            action = 1; // Down
+            break;
+        case 'ArrowLeft':
+            action = 2; // Left
+            break;
+    }
+
+    if (action !== -1) {
+        const nextPosition = mouse.getNextPosition(action);
+        if (maze.isValidPosition(nextPosition.x, nextPosition.y)) {
+            mouse.move(action);
+            // Update stats and draw after a valid player move
+            updateStats();
+            draw();
+
+            // Check for end reached in Play Mode
+            if (mouse.isAtEnd()) {
+                handleSuccessfulRun(); // Use the same success handler
+            }
+        }
+    }
+});
+
+// Initial setup: preload assets and start
+preloadAssets();

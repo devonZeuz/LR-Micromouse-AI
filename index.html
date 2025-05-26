@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LR Micromouse AI - Q-Learning Maze Solver</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="mode-indicator" id="modeIndicator">Mode: Learning</div>
+    
+    <header class="header">
+        <h1>🐭LR Micromouse AI  </h1>
+    </header>
+
+    <div class="container">
+        <aside class="sidebar">
+            <section class="scoreboard">
+                <h2>🏆 Leaderboard</h2>
+                <ul class="scoreboard-list" id="scoreboardList">
+                    <li>No successful runs yet</li>
+                </ul>
+            </section>
+
+            <section class="metrics">
+                <h2>📊 Statistics</h2>
+                <div class="metrics-grid">
+                    <div class="metric-item">
+                        <span class="metric-value" id="generation">0</span>
+                        <span class="metric-label">Generation</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-value" id="successfulRuns">0</span>
+                        <span class="metric-label">Successes</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-value" id="bestTime">-</span>
+                        <span class="metric-label">Best Steps</span>
+                    </div>
+                    <div class="metric-item">
+                        <span class="metric-value" id="averageSteps">-</span>
+                        <span class="metric-label">Avg Steps</span>
+                    </div>
+                </div>
+            </section>
+        </aside>
+
+        <main class="main-content">
+            <div class="game-area">
+                <div class="canvas-container">
+                    <canvas id="mazeCanvas" width="600" height="600"></canvas>
+                </div>
+
+                <div class="instructions">
+                    <h2>🎮 How to Play</h2>
+                    <p><strong>Learning Mode:</strong> Watch the AI learn to solve the maze using Q-Learning reinforcement learning.</p>
+                    <p><strong>Play Mode:</strong> Take control and solve the maze yourself using arrow keys.</p>
+                    <p><strong>Goal:</strong> Find the shortest path from the cyan start to the yellow end.</p>
+                    <p><strong>Controls:</strong></p>
+                    <ul style="margin-left: 20px; margin-top: 10px;">
+                        <li>↑ ↓ ← → Arrow keys (Play Mode)</li>
+                        <li>Start/Reset buttons (Learning Mode)</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="controls">
+                <button class="btn btn-primary" id="startBtn">▶️ Start Learning</button>
+                <button class="btn btn-secondary" id="resetBtn">🔄 Reset</button>
+                <button class="btn btn-warning" id="newMazeBtn">🆕 New Maze</button>
+                <button class="btn btn-danger" id="playModeBtn">🎮 Play Mode</button>
+            </div>
+
+            <div class="stats">
+                <div class="stat-item">
+                    <div>Current Steps: <span id="currentTime">0</span></div>
+                </div>
+                <div class="stat-item">
+                    <div>Total Steps: <span id="totalSteps">0</span></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="js/maze.js" type="module"></script>
+    <script src="js/mouse.js" type="module"></script>
+    <script src="js/ai.js" type="module"></script>
+    <script src="js/main.js" type="module"></script>
+</body>
+</html> 
