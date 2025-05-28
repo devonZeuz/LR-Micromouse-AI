@@ -185,8 +185,42 @@ export class QLearningAgent {
         }
     }
 
-     // Potential method to save Q-table (e.g., to localStorage) - currently not implemented
-     // saveQTable() { /* ... */ }
+    /**
+     * Saves the current Q-table to localStorage
+     * @param {string} key - Optional key to save under. Defaults to 'micromouse_qtable'
+     */
+    saveQTable(key = 'micromouse_qtable') {
+        try {
+            // Convert Map to array of entries for JSON serialization
+            const serializedQTable = Array.from(this.qTable.entries());
+            localStorage.setItem(key, JSON.stringify(serializedQTable));
+            return true;
+        } catch (error) {
+            console.error('Failed to save Q-table:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Loads a Q-table from localStorage
+     * @param {string} key - Optional key to load from. Defaults to 'micromouse_qtable'
+     * @returns {boolean} - Whether the load was successful
+     */
+    loadQTableFromStorage(key = 'micromouse_qtable') {
+        try {
+            const saved = localStorage.getItem(key);
+            if (saved) {
+                // Convert the saved array back to a Map
+                const entries = JSON.parse(saved);
+                this.qTable = new Map(entries);
+                return true;
+            }
+            return false;
+        } catch (error) {
+            console.error('Failed to load Q-table:', error);
+            return false;
+        }
+    }
 }
 
 class ExperienceBuffer {

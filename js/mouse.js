@@ -17,21 +17,26 @@ export class Mouse {
         this.image = mouseImage;
         this.steps = 0; // Number of steps taken in the current run
         this.lastMove = { dx: 0, dy: 0 }; // Track the last move made
+        this.pathColor = '#4CAF50'; // Nice green color for the path
+        this.visitedColor = 'rgba(100, 149, 237, 0.2)'; // Light blue for visited cells
     }
 
     /**
      * Resets the mouse to its starting position and clears run-specific data.
+     * @param {number} x - Optional starting x position. If not provided, uses maze start position.
+     * @param {number} y - Optional starting y position. If not provided, uses maze start position.
      */
-    reset() {
-        this.x = this.maze.start.x;
-        this.y = this.maze.start.y;
+    reset(x = null, y = null) {
+        this.x = x !== null ? x : this.maze.start.x;
+        this.y = y !== null ? y : this.maze.start.y;
         this.direction = 0;
         this.visited.clear();
         this.path = [];
         this.steps = 0;
         this.lastMove = { dx: 0, dy: 0 };
-        // Add starting position to visited set
+        // Add starting position to visited set and path
         this.visited.add(`${this.x},${this.y}`);
+        this.path.push({ x: this.x, y: this.y });
     }
 
     /**
@@ -40,17 +45,42 @@ export class Mouse {
      * @param {HTMLImageElement} mouseLogo - The image element for the mouse logo.
      */
     draw(ctx, mouseLogo) {
-        // Draw path taken by the mouse
+        // Draw visited cells with a light highlight
+        this.visited.forEach(pos => {
+            const [x, y] = pos.split(',').map(Number);
+            ctx.fillStyle = this.visitedColor;
+            ctx.fillRect(
+                x * this.cellSize,
+                y * this.cellSize,
+                this.cellSize,
+                this.cellSize
+            );
+        });
+
+        // Draw path taken by the mouse with gradient
         if (this.path.length > 1) {
-            ctx.strokeStyle = '#ccc'; // Path color (light grey)
-            ctx.lineWidth = this.cellSize / 4;
+            ctx.strokeStyle = this.pathColor;
+            ctx.lineWidth = this.cellSize / 3;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            
+            // Create gradient effect for the path
+            const gradient = ctx.createLinearGradient(
+                this.path[0].x * this.cellSize,
+                this.path[0].y * this.cellSize,
+                this.path[this.path.length - 1].x * this.cellSize,
+                this.path[this.path.length - 1].y * this.cellSize
+            );
+            gradient.addColorStop(0, '#4CAF50');
+            gradient.addColorStop(1, '#81C784');
+            ctx.strokeStyle = gradient;
+
             ctx.beginPath();
-            // Start path from the center of the first cell
             ctx.moveTo(
                 (this.path[0].x + 0.5) * this.cellSize,
                 (this.path[0].y + 0.5) * this.cellSize
             );
-            // Draw lines to the center of subsequent cells
+            
             for (let i = 1; i < this.path.length; i++) {
                 ctx.lineTo(
                     (this.path[i].x + 0.5) * this.cellSize,
@@ -60,35 +90,55 @@ export class Mouse {
             ctx.stroke();
         }
 
-        // Draw the mouse image, centered in the current cell
-        if (mouseLogo && mouseLogo.complete) { 
-            const imageSize = this.cellSize * 1.5; 
-             ctx.save(); // Save context state
-             ctx.translate((this.x + 0.5) * this.cellSize, (this.y + 0.5) * this.cellSize);
-
+        // Draw the mouse with a glowing effect
+        if (mouseLogo && mouseLogo.complete) {
+            const imageSize = this.cellSize * 1.5;
+            ctx.save();
+            
+            // Add glow effect
+            ctx.shadowColor = '#4CAF50';
+            ctx.shadowBlur = 15;
+            
+            ctx.translate((this.x + 0.5) * this.cellSize, (this.y + 0.5) * this.cellSize);
+            ctx.rotate(this.direction * Math.PI / 2); // Rotate based on direction
 
             ctx.drawImage(
-                mouseLogo, 
+                mouseLogo,
                 -imageSize / 2,
                 -imageSize / 2,
                 imageSize,
                 imageSize
             );
-            ctx.restore(); // Restore context state
+            ctx.restore();
         } else {
-             // Fallback to drawing a circle if image is not loaded or provided
-            ctx.fillStyle = '#ffffff'; // White circle fallback
+            // Improved fallback circle with gradient
+            ctx.save();
+            const gradient = ctx.createRadialGradient(
+                (this.x + 0.5) * this.cellSize,
+                (this.y + 0.5) * this.cellSize,
+                0,
+                (this.x + 0.5) * this.cellSize,
+                (this.y + 0.5) * this.cellSize,
+                this.cellSize * 0.4
+            );
+            gradient.addColorStop(0, '#81C784');
+            gradient.addColorStop(1, '#4CAF50');
+            
+            ctx.fillStyle = gradient;
+            ctx.shadowColor = '#4CAF50';
+            ctx.shadowBlur = 15;
+            
             ctx.beginPath();
             ctx.arc(
-                (this.x + 0.5) * this.cellSize, // Center X
-                (this.y + 0.5) * this.cellSize, // Center Y
-                this.cellSize * 0.4, // Radius
+                (this.x + 0.5) * this.cellSize,
+                (this.y + 0.5) * this.cellSize,
+                this.cellSize * 0.4,
                 0,
                 Math.PI * 2
             );
             ctx.fill();
+            ctx.restore();
         }
-
     }
 
     /**
