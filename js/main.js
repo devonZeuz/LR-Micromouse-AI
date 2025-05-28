@@ -127,33 +127,38 @@ const gameLoop = (timestamp) => {
 
     // Execute multiple AI steps per frame for faster learning
     for (let i = 0; i < LEARNING_STEPS_PER_FRAME; i++) {
-        const currentState = mouse.y * maze.width + mouse.x;
+        const currentState = ai.getRelativeState(mouse);
         const action = ai.getAction(currentState);
         const nextPosition = mouse.getNextPosition(action);
-        const nextState = nextPosition.y * maze.width + nextPosition.x;
-
-        if (maze.isValidPosition(nextPosition.x, nextPosition.y)) { // Check validity of the *next* position
-             mouse.move(action);
-             // Calculate reward based on the outcome of the move
-             const reward = ai.getReward(mouse, action);
-            
-             ai.learn(currentState, action, reward, nextState);
-
-            // Update current steps display after each individual step
-            updateStats();
-
+        const wouldBeValid = maze.isValidPosition(nextPosition.x, nextPosition.y);
+        
+        // Calculate reward before moving
+        const reward = ai.getReward(mouse, action, wouldBeValid);
+        
+        let nextState;
+        if (wouldBeValid) {
+            mouse.move(action);
+            nextState = ai.getRelativeState(mouse);
         } else {
-            // Penalize hitting a wall
-            ai.learn(currentState, action, -10, currentState); // Large penalty for invalid moves
+            nextState = currentState;
         }
 
-        // Update current steps display immediately after a step (valid or invalid)
+        // Learn from this experience
+        ai.learn(currentState, action, reward, nextState);
+        
+        // Update performance tracking
+        ai.performanceTracker.addResult(mouse.steps);
+        
+        // Update learning rate based on performance
+        ai.updateLearningRate(generation, ai.performanceTracker);
+
+        // Update current steps display immediately
         currentTimeSpan.textContent = mouse.steps;
 
-        // Check for successful run after each step within the frame
+        // Check for successful run
         if (mouse.isAtEnd()) {
             handleSuccessfulRun();
-            return; // Stop this game loop iteration and wait for timeout
+            return;
         }
     }
 
@@ -313,7 +318,14 @@ const updateStats = () => {
 const updateMetrics = () => {
     successfulRunsSpan.textContent = successfulRuns;
     totalStepsSpan.textContent = totalSteps;
-    averageStepsSpan.textContent = successfulRuns === 0 ? '-' : (totalSteps / successfulRuns).toFixed(2);
+    averageStepsSpan.textContent = successfulRuns > 0 ? Math.round(totalSteps / successfulRuns) : 0;
+    
+    // Add performance metrics
+    const avgPerformance = ai ? ai.performanceTracker.getAveragePerformance() : 0;
+    const performanceElement = document.getElementById('performance');
+    if (performanceElement) {
+        performanceElement.textContent = `Avg Steps (last 100): ${Math.round(avgPerformance)}`;
+    }
 };
 
 // Update the scoreboard list

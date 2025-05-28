@@ -6,13 +6,37 @@ export class QLearningAgent {
      * @param {number} explorationDecay - The rate at which the exploration rate decays over generations.
      * @param {number} minExplorationRate - The minimum exploration rate to prevent exploration from dropping to zero.
      */
-    constructor(learningRate = 0.1, discountFactor = 0.9, explorationRate = 1.0, explorationDecay = 0.995, minExplorationRate = 0.01) {
+    constructor(
+        learningRate = 0.3,      // Higher for faster learning
+        discountFactor = 0.95,   // High for long-term planning
+        explorationRate = 0.8,   // Start lower
+        explorationDecay = 0.998, // Slower decay
+        minExplorationRate = 0.05 // Higher minimum
+    ) {
         this.learningRate = learningRate;
         this.discountFactor = discountFactor;
         this.explorationRate = explorationRate;
         this.explorationDecay = explorationDecay;
         this.minExplorationRate = minExplorationRate;
-        this.qTable = new Map(); 
+        this.qTable = new Map();
+        this.performanceTracker = new PerformanceTracker();
+        this.experienceBuffer = new ExperienceBuffer();
+    }
+
+    getRelativeState(mouse) {
+        const distToGoal = {
+            x: mouse.maze.end.x - mouse.x,
+            y: mouse.maze.end.y - mouse.y
+        };
+        
+        const walls = [
+            mouse.maze.isWall(mouse.x + 1, mouse.y), // right
+            mouse.maze.isWall(mouse.x, mouse.y + 1), // down
+            mouse.maze.isWall(mouse.x - 1, mouse.y), // left
+            mouse.maze.isWall(mouse.x, mouse.y - 1)  // up
+        ];
+        
+        return `${distToGoal.x},${distToGoal.y},${walls.join('')}`;
     }
 
     /**
@@ -25,11 +49,10 @@ export class QLearningAgent {
             return Math.floor(Math.random() * 4); // Explore: random action
         }
 
-        const stateKey = state;
-        if (!this.qTable.has(stateKey)) {
-            this.qTable.set(stateKey, [0, 0, 0, 0]);
+        if (!this.qTable.has(state)) {
+            this.qTable.set(state, [0, 0, 0, 0]);
         }
-        const qValues = this.qTable.get(stateKey);
+        const qValues = this.qTable.get(state);
         
         // Exploit: find best action (handle ties)
         const maxQ = Math.max(...qValues);
@@ -48,22 +71,43 @@ export class QLearningAgent {
      * @param {string} nextState - The string representation of the state after the action.
      */
     learn(state, action, reward, nextState) {
-        const stateKey = state;
-        const nextStateKey = nextState;
+        // Store experience
+        this.experienceBuffer.add(state, action, reward, nextState);
 
-        if (!this.qTable.has(stateKey)) {
-            this.qTable.set(stateKey, [0, 0, 0, 0]);
+        if (!this.qTable.has(state)) {
+            this.qTable.set(state, [0, 0, 0, 0]);
         }
-        if (!this.qTable.has(nextStateKey)) {
-            this.qTable.set(nextStateKey, [0, 0, 0, 0]);
+        if (!this.qTable.has(nextState)) {
+            this.qTable.set(nextState, [0, 0, 0, 0]);
         }
 
         // Q-learning update
-        const currentQ = this.qTable.get(stateKey)[action];
-        const nextMaxQ = Math.max(...this.qTable.get(nextStateKey));
+        const currentQ = this.qTable.get(state)[action];
+        const nextMaxQ = Math.max(...this.qTable.get(nextState));
         const newQ = currentQ + this.learningRate * (reward + this.discountFactor * nextMaxQ - currentQ);
         
-        this.qTable.get(stateKey)[action] = newQ;
+        this.qTable.get(state)[action] = newQ;
+
+        // Experience replay
+        this.replayExperience();
+    }
+
+    replayExperience() {
+        const batch = this.experienceBuffer.sample();
+        batch.forEach(exp => {
+            if (!this.qTable.has(exp.state)) {
+                this.qTable.set(exp.state, [0, 0, 0, 0]);
+            }
+            if (!this.qTable.has(exp.nextState)) {
+                this.qTable.set(exp.nextState, [0, 0, 0, 0]);
+            }
+
+            const currentQ = this.qTable.get(exp.state)[exp.action];
+            const nextMaxQ = Math.max(...this.qTable.get(exp.nextState));
+            const newQ = currentQ + this.learningRate * (exp.reward + this.discountFactor * nextMaxQ - currentQ);
+            
+            this.qTable.get(exp.state)[exp.action] = newQ;
+        });
     }
 
     /**
@@ -73,37 +117,37 @@ export class QLearningAgent {
      * @param {number} action - The action taken.
      * @returns {number} The calculated reward.
      */
-    getReward(mouse, action) {
-        const nextPosition = mouse.getNextPosition(action);
-
-        // Penalty for hitting a wall
-        const dx = [1, 0, -1, 0][action];
-        const dy = [0, 1, 0, -1][action];
-        if (mouse.maze.isWall(mouse.x + dx, mouse.y + dy)) {
-            return -10;
-        }
-
-        // Reward/penalty based on distance to goal
-        const currentDist = Math.abs(mouse.x - mouse.maze.end.x) + Math.abs(mouse.y - mouse.maze.end.y);
-        const nextDist = Math.abs(nextPosition.x - mouse.maze.end.x) + Math.abs(nextPosition.y - mouse.maze.end.y);
+    getReward(mouse, action, wasValidMove) {
+        let reward = -0.1; // Base step penalty
         
-        let reward = 0;
-        if (nextDist < currentDist) {
-            reward += 1;
-        } else if (nextDist > currentDist) {
-            reward -= 1;
+        if (!wasValidMove) {
+            return -10; // Wall collision
         }
-
-        // Small penalty per step
-        reward -= 0.1;
-
-        // Bonus for exploring new cells
-        const newPosKey = `${nextPosition.x},${nextPosition.y}`;
-        if (mouse.maze.isValidPosition(nextPosition.x, nextPosition.y) && !mouse.visited.has(newPosKey)) {
-             reward += 2;
+        
+        // Goal reached
+        if (mouse.isAtEnd()) {
+            return 100;
         }
-
-         return reward;
+        
+        // Distance-based reward (Manhattan distance)
+        const currentDist = Math.abs(mouse.x - mouse.maze.end.x) + 
+                           Math.abs(mouse.y - mouse.maze.end.y);
+        const prevDist = Math.abs((mouse.x - mouse.lastMove.dx) - mouse.maze.end.x) + 
+                        Math.abs((mouse.y - mouse.lastMove.dy) - mouse.maze.end.y);
+        
+        if (currentDist < prevDist) {
+            reward += 2; // Moving closer
+        } else if (currentDist > prevDist) {
+            reward -= 1; // Moving away
+        }
+        
+        // Revisit penalty
+        const posKey = `${mouse.x},${mouse.y}`;
+        if (mouse.visited.has(posKey)) {
+            reward -= 5; // Discourage revisiting
+        }
+        
+        return reward;
     }
 
     /**
@@ -133,6 +177,66 @@ export class QLearningAgent {
         this.qTable = new Map(qTable);
     }
 
+    updateLearningRate(episode, performance) {
+        if (this.performanceTracker.isImproving()) {
+            this.learningRate = Math.min(0.5, this.learningRate * 1.01);
+        } else {
+            this.learningRate = Math.max(0.1, this.learningRate * 0.99);
+        }
+    }
+
      // Potential method to save Q-table (e.g., to localStorage) - currently not implemented
      // saveQTable() { /* ... */ }
+}
+
+class ExperienceBuffer {
+    constructor(maxSize = 10000) {
+        this.buffer = [];
+        this.maxSize = maxSize;
+    }
+    
+    add(state, action, reward, nextState) {
+        if (this.buffer.length >= this.maxSize) {
+            this.buffer.shift();
+        }
+        this.buffer.push({state, action, reward, nextState});
+    }
+    
+    sample(batchSize = 32) {
+        const batch = [];
+        for (let i = 0; i < Math.min(batchSize, this.buffer.length); i++) {
+            const idx = Math.floor(Math.random() * this.buffer.length);
+            batch.push(this.buffer[idx]);
+        }
+        return batch;
+    }
+}
+
+class PerformanceTracker {
+    constructor() {
+        this.recentPerformances = [];
+        this.windowSize = 100;
+    }
+    
+    addResult(steps) {
+        this.recentPerformances.push(steps);
+        if (this.recentPerformances.length > this.windowSize) {
+            this.recentPerformances.shift();
+        }
+    }
+    
+    getAveragePerformance() {
+        if (this.recentPerformances.length === 0) return 0;
+        return this.recentPerformances.reduce((a, b) => a + b) / 
+               this.recentPerformances.length;
+    }
+    
+    isImproving() {
+        if (this.recentPerformances.length < 20) return false;
+        const recent = this.recentPerformances.slice(-10);
+        const older = this.recentPerformances.slice(-20, -10);
+        const recentAvg = recent.reduce((a, b) => a + b) / recent.length;
+        const olderAvg = older.reduce((a, b) => a + b) / older.length;
+        return recentAvg < olderAvg; // Lower steps = better
+    }
 } 

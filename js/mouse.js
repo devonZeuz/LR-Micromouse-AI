@@ -16,6 +16,7 @@ export class Mouse {
         this.path = []; // To store the path taken by the mouse
         this.image = mouseImage;
         this.steps = 0; // Number of steps taken in the current run
+        this.lastMove = { dx: 0, dy: 0 }; // Track the last move made
     }
 
     /**
@@ -28,6 +29,9 @@ export class Mouse {
         this.visited.clear();
         this.path = [];
         this.steps = 0;
+        this.lastMove = { dx: 0, dy: 0 };
+        // Add starting position to visited set
+        this.visited.add(`${this.x},${this.y}`);
     }
 
     /**
@@ -93,23 +97,28 @@ export class Mouse {
      * @returns {boolean} True if the move was valid and successful, false otherwise.
      */
     move(direction) {
-        const dx = [1, 0, -1, 0][direction]; // Change in x for each direction
-        const dy = [0, 1, 0, -1][direction]; // Change in y for each direction
+        const dx = [1, 0, -1, 0][direction];
+        const dy = [0, 1, 0, -1][direction];
 
         const newX = this.x + dx;
         const newY = this.y + dy;
 
-        // Check if the new position is valid in the maze (within bounds and not a wall)
         if (this.maze.isValidPosition(newX, newY)) {
+            // Store the last move before updating position
+            this.lastMove = { dx: this.x, dy: this.y };
+            
             this.x = newX;
             this.y = newY;
-            this.direction = direction; // Update mouse's internal direction
-            this.visited.add(`${this.x},${this.y}`); // Mark cell as visited
-            this.path.push({ x: this.x, y: this.y }); // Add new position to the path
-            this.steps++; // Increment step count
-            return true; // Move was successful
+            this.direction = direction;
+            
+            // Add to visited set and path
+            const posKey = `${this.x},${this.y}`;
+            this.visited.add(posKey);
+            this.path.push({ x: this.x, y: this.y });
+            this.steps++;
+            return true;
         }
-        return false; // Move was invalid (hit a wall or out of bounds)
+        return false;
     }
 
     /**
@@ -139,9 +148,14 @@ export class Mouse {
     getNextPosition(direction) {
         const dx = [1, 0, -1, 0][direction];
         const dy = [0, 1, 0, -1][direction];
-        const newX = this.x + dx;
-        const newY = this.y + dy;
-        return { x: newX, y: newY };
+        return { 
+            x: this.x + dx, 
+            y: this.y + dy 
+        };
+    }
+
+    hasVisited(x, y) {
+        return this.visited.has(`${x},${y}`);
     }
 
     /**
@@ -179,5 +193,11 @@ export class Mouse {
      */
     isAtEnd() {
         return this.x === this.maze.end.x && this.y === this.maze.end.y;
+    }
+
+    // New method to get distance to goal
+    getDistanceToGoal() {
+        return Math.abs(this.x - this.maze.end.x) + 
+               Math.abs(this.y - this.maze.end.y);
     }
 } 
