@@ -19,8 +19,6 @@ export class QLearningAgent {
         this.explorationDecay = explorationDecay;
         this.minExplorationRate = minExplorationRate;
         this.qTable = new Map();
-        this.performanceTracker = new PerformanceTracker();
-        this.experienceBuffer = new ExperienceBuffer();
     }
 
     getRelativeState(mouse) {
@@ -71,9 +69,6 @@ export class QLearningAgent {
      * @param {string} nextState - The string representation of the state after the action.
      */
     learn(state, action, reward, nextState) {
-        // Store experience
-        this.experienceBuffer.add(state, action, reward, nextState);
-
         if (!this.qTable.has(state)) {
             this.qTable.set(state, [0, 0, 0, 0]);
         }
@@ -87,27 +82,6 @@ export class QLearningAgent {
         const newQ = currentQ + this.learningRate * (reward + this.discountFactor * nextMaxQ - currentQ);
         
         this.qTable.get(state)[action] = newQ;
-
-        // Experience replay
-        this.replayExperience();
-    }
-
-    replayExperience() {
-        const batch = this.experienceBuffer.sample();
-        batch.forEach(exp => {
-            if (!this.qTable.has(exp.state)) {
-                this.qTable.set(exp.state, [0, 0, 0, 0]);
-            }
-            if (!this.qTable.has(exp.nextState)) {
-                this.qTable.set(exp.nextState, [0, 0, 0, 0]);
-            }
-
-            const currentQ = this.qTable.get(exp.state)[exp.action];
-            const nextMaxQ = Math.max(...this.qTable.get(exp.nextState));
-            const newQ = currentQ + this.learningRate * (exp.reward + this.discountFactor * nextMaxQ - currentQ);
-            
-            this.qTable.get(exp.state)[exp.action] = newQ;
-        });
     }
 
     /**
@@ -177,14 +151,6 @@ export class QLearningAgent {
         this.qTable = new Map(qTable);
     }
 
-    updateLearningRate(episode, performance) {
-        if (this.performanceTracker.isImproving()) {
-            this.learningRate = Math.min(0.5, this.learningRate * 1.01);
-        } else {
-            this.learningRate = Math.max(0.1, this.learningRate * 0.99);
-        }
-    }
-
     /**
      * Saves the current Q-table to localStorage
      * @param {string} key - Optional key to save under. Defaults to 'micromouse_qtable'
@@ -220,57 +186,5 @@ export class QLearningAgent {
             console.error('Failed to load Q-table:', error);
             return false;
         }
-    }
-}
-
-class ExperienceBuffer {
-    constructor(maxSize = 10000) {
-        this.buffer = [];
-        this.maxSize = maxSize;
-    }
-    
-    add(state, action, reward, nextState) {
-        if (this.buffer.length >= this.maxSize) {
-            this.buffer.shift();
-        }
-        this.buffer.push({state, action, reward, nextState});
-    }
-    
-    sample(batchSize = 32) {
-        const batch = [];
-        for (let i = 0; i < Math.min(batchSize, this.buffer.length); i++) {
-            const idx = Math.floor(Math.random() * this.buffer.length);
-            batch.push(this.buffer[idx]);
-        }
-        return batch;
-    }
-}
-
-class PerformanceTracker {
-    constructor() {
-        this.recentPerformances = [];
-        this.windowSize = 100;
-    }
-    
-    addResult(steps) {
-        this.recentPerformances.push(steps);
-        if (this.recentPerformances.length > this.windowSize) {
-            this.recentPerformances.shift();
-        }
-    }
-    
-    getAveragePerformance() {
-        if (this.recentPerformances.length === 0) return 0;
-        return this.recentPerformances.reduce((a, b) => a + b) / 
-               this.recentPerformances.length;
-    }
-    
-    isImproving() {
-        if (this.recentPerformances.length < 20) return false;
-        const recent = this.recentPerformances.slice(-10);
-        const older = this.recentPerformances.slice(-20, -10);
-        const recentAvg = recent.reduce((a, b) => a + b) / recent.length;
-        const olderAvg = older.reduce((a, b) => a + b) / older.length;
-        return recentAvg < olderAvg; // Lower steps = better
     }
 } 

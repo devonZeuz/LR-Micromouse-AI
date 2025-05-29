@@ -1,7 +1,6 @@
 import { Maze } from './maze.js';
 import { Mouse } from './mouse.js';
 import { QLearningAgent } from './ai.js';
-import { MazeAnalytics } from './analytics.js';
 
 const canvas = document.getElementById('mazeCanvas');
 const ctx = canvas.getContext('2d');
@@ -30,7 +29,6 @@ const PARTICLE_COUNT = 100;
 let maze;
 let mouse;
 let ai;
-let analytics;
 let generation = 0;
 let successfulRuns = 0;
 let totalSteps = 0;
@@ -75,7 +73,6 @@ const generateNewMaze = () => {
     
     ai = new QLearningAgent(0.2, 0.95, 1.0, 0.995, 0.01);
     mouse = new Mouse(maze, maze.start.x, maze.start.y, mouseLogo);
-    analytics = new MazeAnalytics();
 
     generation = 0;
     successfulRuns = 0;
@@ -149,12 +146,6 @@ const gameLoop = (timestamp) => {
         // Learn from this experience
         ai.learn(currentState, action, reward, nextState);
         
-        // Update performance tracking
-        ai.performanceTracker.addResult(mouse.steps);
-        
-        // Update learning rate based on performance
-        ai.updateLearningRate(generation, ai.performanceTracker);
-
         // Update current steps display immediately
         currentTimeSpan.textContent = mouse.steps;
 
@@ -181,10 +172,6 @@ const handleSuccessfulRun = () => {
     totalSteps += currentRunSteps;
     bestTime = Math.min(bestTime, currentRunSteps);
 
-    // Record analytics and check for optimal solution
-    const insights = analytics.recordEpisode(mouse, ai, generation, currentRunSteps, true);
-    updateAnalyticsDisplay(insights);
-
     // Add to scoreboard if in Learning Mode
     if (!isPlayMode) {
         successfulRunsData.push({
@@ -206,12 +193,6 @@ const handleSuccessfulRun = () => {
     isPaused = true;
     stopAnimation();
     
-    // Check if maze is solved optimally
-    if (insights.mazeSolved) {
-        celebrateOptimalSolution(insights.optimalSteps);
-        return;
-    }
-    
     setTimeout(() => {
         isPaused = false;
         generation++;
@@ -220,48 +201,6 @@ const handleSuccessfulRun = () => {
         mouse.reset(maze.start.x, maze.start.y);
         startLearning();
     }, SUCCESS_PAUSE_DURATION);
-};
-
-// Add celebration and progression function
-const celebrateOptimalSolution = (optimalSteps) => {
-    // Create celebration overlay
-    const overlay = document.createElement('div');
-    overlay.className = 'celebration-overlay';
-    overlay.innerHTML = `
-        <div class="celebration-content">
-            <h2>🎉 Maze Solved Optimally! 🎉</h2>
-            <p>Optimal Path Found: ${optimalSteps} steps</p>
-            <p>Total Generations: ${generation}</p>
-            <div class="celebration-buttons">
-                <button class="btn btn-primary" id="nextMazeBtn">Try New Maze</button>
-                <button class="btn btn-secondary" id="keepTrainingBtn">Keep Training</button>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(overlay);
-
-    // Add event listeners
-    document.getElementById('nextMazeBtn').addEventListener('click', () => {
-        document.body.removeChild(overlay);
-        // Save the current Q-table before generating new maze
-        const currentQTable = ai.getQTableCopy();
-        generateNewMaze();
-        // Initialize new AI with previous experience
-        ai.loadQTable(currentQTable);
-        startLearning();
-    });
-
-    document.getElementById('keepTrainingBtn').addEventListener('click', () => {
-        document.body.removeChild(overlay);
-        setTimeout(() => {
-            isPaused = false;
-            generation++;
-            ai.decayExploration();
-            mouseName = getMouseName(generation);
-            mouse.reset(maze.start.x, maze.start.y);
-            startLearning();
-        }, 500);
-    });
 };
 
 // Start particle animation at a given position
@@ -366,13 +305,6 @@ const updateMetrics = () => {
     successfulRunsSpan.textContent = successfulRuns;
     totalStepsSpan.textContent = totalSteps;
     averageStepsSpan.textContent = successfulRuns > 0 ? Math.round(totalSteps / successfulRuns) : 0;
-    
-    // Add performance metrics
-    const avgPerformance = ai ? ai.performanceTracker.getAveragePerformance() : 0;
-    const performanceElement = document.getElementById('performance');
-    if (performanceElement) {
-        performanceElement.textContent = `Avg Steps (last 100): ${Math.round(avgPerformance)}`;
-    }
 };
 
 // Update the scoreboard list
@@ -488,60 +420,6 @@ document.addEventListener('keydown', (event) => {
         }
     }
 });
-
-// Add analytics display functions
-const updateAnalyticsDisplay = (insights) => {
-    const analyticsDiv = document.getElementById('analytics') || createAnalyticsPanel();
-    
-    const progressHTML = `
-        <div class="analytics-section">
-            <h3>Learning Progress</h3>
-            <p>Status: ${insights.learningProgress.status}</p>
-            <p>Trend: ${insights.learningProgress.trend} (${insights.learningProgress.improvement}%)</p>
-        </div>
-    `;
-
-    const behaviorHTML = `
-        <div class="analytics-section">
-            <h3>Behavior Analysis</h3>
-            <p>Strategy: ${insights.behaviorAnalysis.dominantStrategy}</p>
-            <p>Path Efficiency: ${Math.round(insights.behaviorAnalysis.efficiency * 100)}%</p>
-            <p>Exploration Rate: ${Math.round(insights.behaviorAnalysis.explorationRate * 100)}%</p>
-        </div>
-    `;
-
-    const metricsHTML = insights.performanceMetrics ? `
-        <div class="analytics-section">
-            <h3>Performance</h3>
-            <p>Average Steps: ${insights.performanceMetrics.averageSteps}</p>
-            <p>Success Rate: ${Math.round(insights.performanceMetrics.successRate)}%</p>
-            <p>Coverage: ${insights.performanceMetrics.averageUniqueCells} cells</p>
-        </div>
-    ` : '';
-
-    const recommendationsHTML = insights.recommendations.length ? `
-        <div class="analytics-section">
-            <h3>Recommendations</h3>
-            <ul>
-                ${insights.recommendations.map(rec => `<li>${rec}</li>`).join('')}
-            </ul>
-        </div>
-    ` : '';
-
-    analyticsDiv.innerHTML = progressHTML + behaviorHTML + metricsHTML + recommendationsHTML;
-};
-
-const createAnalyticsPanel = () => {
-    const analyticsDiv = document.createElement('div');
-    analyticsDiv.id = 'analytics';
-    analyticsDiv.className = 'analytics-panel';
-    
-    // Insert after the scoreboard
-    const scoreboard = document.querySelector('.scoreboard');
-    scoreboard.parentNode.insertBefore(analyticsDiv, scoreboard.nextSibling);
-    
-    return analyticsDiv;
-};
 
 // Initial setup: preload assets and start
 preloadAssets();
